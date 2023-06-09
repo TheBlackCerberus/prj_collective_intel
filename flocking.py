@@ -27,7 +27,6 @@ class Bird(Agent):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs) 
-        self.neighbours = []  # initialize neighbours
         self.velocity = Vector2(0, 0)  # initialize velocity
         self.position = Vector2(0, 0)  # initialize position
 
