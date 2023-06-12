@@ -150,7 +150,17 @@ class Bird(Agent):
 
         #END CODE -----------------
 
+class MovingObstacle(Obstacle):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.max_velocity = 2.0 # max speed for obstacle
+        self.move = Vector2(np.random.uniform(-1, 1), np.random.uniform(-1, 1)).normalize() * self.max_velocity
 
+    def move_obstacle(self):
+        self.pos += self.move
+
+        # Similar to the Bird's movement, we will keep the obstacle within the screen
+        self.there_is_no_escape()
 
 class Selection(Enum):
     ALIGNMENT = auto()
@@ -161,6 +171,17 @@ class Selection(Enum):
 class FlockingLive(Simulation):
     selection: Selection = Selection.ALIGNMENT
     config: FlockingConfig
+
+    # ... other existing methods here ...
+
+    def run(self):
+        # Run the simulation.
+        while self.running:
+            # ... other existing game loop code here ...
+
+            # Update obstacle positions
+            for obstacle in self._obstacles:
+                obstacle.move_obstacle()
 
     def handle_event(self, by: float):
         if self.selection == Selection.ALIGNMENT:
@@ -200,7 +221,7 @@ class FlockingLive(Simulation):
         )
     )
     .batch_spawn_agents(50, Bird, images=["images/bird.png"])
-    .spawn_obstacle( "images/triangle@50px.png", x=375, y=375)
+    .spawn_moving_obstacle(MovingObstacle, "images/triangle@50px.png", x=375, y=375)
     .run()
 )
 
