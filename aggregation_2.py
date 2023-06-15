@@ -4,7 +4,7 @@ import numpy as np
 import math
 import polars as pl
 import seaborn as sns
-
+import wandb
 import pygame as pg
 from pygame.math import Vector2
 from vi import Agent, Simulation, util
@@ -32,6 +32,16 @@ class AggregationConfig(Config):
 
 class Cockroach(Agent):
     config: AggregationConfig
+    aggregation_size = 0
+    join_counter = 0
+    leave_counter = 0
+    formation_timer = None
+    lifespan_timer = None
+
+
+    # Initialize the wandb logging
+    wandb.init(project="cockroach_simulation")
+
 
     def on_spawn(self):
         # All agents start at the wandering state and with counter 0
@@ -64,6 +74,9 @@ class Cockroach(Agent):
             if self.join(neighbours):
                 self.state = 'joining'
         elif self.state == 'joining':
+            self.join_counter += 1
+            # Log the join counter to wandb
+            wandb.log({"join_counter": self.join_counter})
             self.counter += 1
             # When the agent has joined the aggregation, change the state to still
             if self.counter > self.max_join_time: 
