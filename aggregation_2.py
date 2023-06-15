@@ -24,6 +24,7 @@ class AggregationConfig(Config):
     big_circle_radius: int = 300/2
     number_popular_agents: int = 0
     max_popular_agents: int = 10
+    aggregation_type: str = 'beta_transformed_linear_pooling'
 
     def weights(self) -> tuple[float, float]:
         return (self.factor_a, self.factor_b)
@@ -31,8 +32,6 @@ class AggregationConfig(Config):
 
 class Cockroach(Agent):
     config: AggregationConfig
-    join_probability_type: str = "uniform"
-    leave_probability_type: str = "default"
 
     def on_spawn(self):
         # All agents start at the wandering state and with counter 0
@@ -86,22 +85,45 @@ class Cockroach(Agent):
                 self.state = 'wandering'
                 self.counter = 0
 
-            
+    def linear_pooling(self, probability_neighbours,  probability_popularity):
+        # Linear pooling: take a weighted average of the two probabilities
+        probability = 0.5 * probability_neighbours + 0.5 * probability_popularity
+        return probability
+
+    def beta_transformed_linear_pooling(self, probability_neighbours,  probability_popularity):
+        probability_neighbours_transformed = probability_neighbours / (probability_neighbours + (1 - probability_neighbours))
+        probability_popularity_transformed = probability_popularity / (probability_popularity + (1 - probability_popularity))
+        # Linear pooling: take a weighted average of the transformed probabilities
+        probability = 0.5 * probability_neighbours_transformed + 0.5 * probability_popularity_transformed
+        return probability
+
+    def log_linear_pooling(self, probability_neighbours,  probability_popularity):
+        probability_neighbours_transformed = np.log(probability_neighbours)
+        probability_popularity_transformed = np.log(probability_popularity)
+        # Linear pooling: take a weighted average of the transformed probabilities
+        probability = np.exp(0.5 * probability_neighbours_transformed + 0.5 * probability_popularity_transformed)
+        return probability
+
+
     def join(self, neighbours):
         # The average popularity of the neighbours
         avg_pop = self.neighbour_popularity(neighbours)
+        # Calculate the joining probability using the number of neighbours
+        # The probability to stop is 0.03 if no neighbours and at most 0.51
+        probability_neighbours  = 0.03 + 0.48*(1 - math.e**(-self.config.factor_a * len(neighbours)))*(avg_pop/self.popularity)
+        probability_popularity = avg_pop / self.popularity
 
-        # Calculate the joining probability based on the selected type
-        if self.join_probability_type == "default":
-            probability = 0.03 + 0.48*(1 - math.e**(-self.config.factor_a * len(neighbours)))*(avg_pop/self.popularity)
-        elif self.join_probability_type == "uniform":
-            probability = np.random.uniform(0, 1)
-        elif self.join_probability_type == "normal":
-            probability = abs(np.random.normal(0.5, 0.1))  # abs to ensure probability is positive
-        elif self.join_probability_type == "exponential":
-            probability = np.random.exponential(0.5)
-        elif self.join_probability_type == "logistic":
-            probability = 1 / (1 + math.exp(-len(neighbours)))
+        if self.config.aggregation_type == 'linear_pooling':
+            probability = self.linear_pooling(probability_neighbours,  probability_popularity)
+
+        elif self.config.aggregation_type == 'beta_transformed_linear_pooling':
+            probability = self.beta_transformed_linear_pooling(probability_neighbours,  probability_popularity)
+
+        elif self.config.aggregation_type == 'log_linear_pooling':
+            probability = self.log_linear_pooling(probability_neighbours,  probability_popularity)
+
+        else:
+            probability = probability_neighbours
 
         # Return True if join the aggregate, else return False
         if self.popularity == 3:
@@ -112,31 +134,35 @@ class Cockroach(Agent):
                 return True
         return False
 
+
     def leave(self, neighbours):
         # The average popularity of the neighbours
         avg_pop = self.neighbour_popularity(neighbours)
+        # Calculate the leaving probability
+        # If there are many neighbours, leaving is less likely
+        # If there are no neighbours, it is nearly certain that the agents
+        # leave, probability is 1
+        probability_neighbours = math.e**(-self.config.factor_b * len(neighbours))
+        probability_popularity = 1 - avg_pop / self.popularity
 
-        # Calculate the leaving probability based on the selected type
-        if self.leave_probability_type == "default":
-            probability = math.e**(-self.config.factor_b * len(neighbours))
-        elif self.leave_probability_type == "uniform":
-            probability = np.random.uniform(0, 1)
-        elif self.leave_probability_type == "normal":
-            probability = abs(np.random.normal(0.5, 0.1))  # abs to ensure probability is positive
-        elif self.leave_probability_type == "exponential":
-            probability = np.random.exponential(0.5)
-        elif self.leave_probability_type == "logistic":
-            probability = 1 / (1 + math.exp(-len(neighbours)))
+        if self.config.aggregation_type == 'linear_pooling':
+            probability = self.linear_pooling(probability_neighbours,  probability_popularity)
+        elif self.config.aggregation_type == 'beta_transformed_linear_pooling':
+            probability = self.beta_transformed_linear_pooling(probability_neighbours,  probability_popularity)
+
+        elif self.config.aggregation_type == 'log_linear_pooling':
+            probability = self.log_linear_pooling(probability_neighbours,  probability_popularity)
+
+        else:
+            probability = probability_neighbours
 
         if probability < 0.0025 and avg_pop == 1:
             probability = 0.0025
-
         # Return True if leave the aggregate, else return False
         if util.probability(probability):
             return True
         else:
             return False
-
     
     def choose_start_pos(self):
         # Choose a random start position
