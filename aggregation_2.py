@@ -9,10 +9,10 @@ import pygame as pg
 from pygame.math import Vector2
 from vi import Agent, Simulation, util
 from vi.config import Window, Config, dataclass, deserialize
+import pandas as pd
 
 @deserialize
 @dataclass
-
 class AggregationConfig(Config):
     # Add all parameters here
     D: int = 20
@@ -32,15 +32,18 @@ class AggregationConfig(Config):
 
 class Cockroach(Agent):
     config: AggregationConfig
-    aggregation_size = 0
-    join_counter = 0
-    leave_counter = 0
-    formation_timer = None
-    lifespan_timer = None
+    
 
-
-    # Initialize the wandb logging
-    wandb.init(project="cockroach_simulation")
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.join_counter = 0
+        self.leave_counter = 0
+        self.formation_timer = None
+        self.lifespan_timer = None
+        self.time_step = 0
+        self.join_rate = []
+        self.leave_rate = []
+        self.lifespan = []
 
 
     def on_spawn(self):
@@ -61,28 +64,36 @@ class Cockroach(Agent):
         self.max_leave_time = self.config.t_leave
         # Make sure no agents start at the aggregation site
         self.pos = self.choose_start_pos()
-        
 
+        
     def update(self):
+        super().update()
+        self.time_step += 1
         # Save the current state of the agent
         self.save_data("state", self.state)
         # The number of immediate neighbours
         neighbours = list(self.in_proximity_performance())
+
         if self.state == 'wandering': 
             # If detect an aggregation site, join the aggregation with given 
             # probability
             if self.join(neighbours):
                 self.state = 'joining'
+
         elif self.state == 'joining':
-            self.join_counter += 1
-            # Log the join counter to wandb
-            wandb.log({"join_counter": self.join_counter})
+            # self.join_counter += 1
+            # # Log the join counter to wandb
+            # wandb.log({"join_counter": self.join_counter})
             self.counter += 1
+            self.join_counter += 1
+            #print(f"Join counter: {self.join_counter}")
+            wandb.log({"join_counter": self.join_counter})
             # When the agent has joined the aggregation, change the state to still
             if self.counter > self.max_join_time: 
                 self.freeze_movement()
                 self.state = 'still'
                 self.counter = 0
+
         elif self.state == 'still': 
             self.counter += 1
             # Leave the aggregate with given probability, but only check 
@@ -91,12 +102,60 @@ class Cockroach(Agent):
                 self.continue_movement()
                 self.counter = 0
                 self.state = 'leaving'
+
+
         elif self.state == 'leaving':
             self.counter += 1
+            self.leave_counter += 1
+            #print(f"Leave counter: {self.leave_counter}")
+            wandb.log({"leave_counter": self.leave_counter})
             # When the agent has left the aggregation site, change the state to wandering
             if self.counter > self.max_leave_time: 
                 self.state = 'wandering'
                 self.counter = 0
+
+        # Calculate join rate and append it to the list
+        self.join_rate.append(self.join_counter / self.time_step)
+        wandb.log({"join_rate": self.join_counter / self.time_step})
+
+
+        # Calculate leave rate and append it to the list
+        self.leave_rate.append(self.leave_counter / self.time_step)
+        wandb.log({"leave_rate": self.leave_counter / self.time_step})
+
+        #calculate the lifespan of the agent leaving the aggregation
+        if self.state == 'leaving' and self.formation_timer is None:
+            self.formation_timer = self.time_step
+
+        if self.state == 'wandering' and self.lifespan_timer is None:
+            self.lifespan_timer = self.time_step
+
+        elif self.state == 'wandering' and self.lifespan_timer is not None:
+            lifespan = self.time_step - self.lifespan_timer
+            self.lifespan_timer = None
+            self.lifespan.append(lifespan)
+            wandb.log({"lifespan": lifespan})
+
+        # calculate and append the aggregation
+        # self.join_rate.append(self.join_counter / self.time_step) 
+
+        # # Update aggregation size
+        # self.aggregation_size += sum(agent.state == 'still' for agent in self.agents)
+        # # Update join and leave counters
+        # self.join_counter += sum(agent.state == 'joining' for agent in self.agents)
+        # self.leave_counter += sum(agent.state == 'leaving' for agent in self.agents)
+        # # Update formation timer
+        # if self.aggregation_size >= THRESHOLD and self.formation_timer is None:
+        #     self.formation_timer = self.time_step
+        # # Update lifespan timer
+        # if self.aggregation_size >= THRESHOLD and self.lifespan_timer is None:
+        #     self.lifespan_timer = self.time_step
+        # elif self.aggregation_size < THRESHOLD and self.lifespan_timer is not None:
+        #     lifespan = self.time_step - self.lifespan_timer
+        #     self.lifespan_timer = None
+        #     # Log lifespan to wandb
+        #     wandb.log({"lifespan": lifespan})
+
 
     def linear_pooling(self, probability_neighbours,  probability_popularity):
         # Linear pooling: take a weighted average of the two probabilities
@@ -212,27 +271,187 @@ class Cockroach(Agent):
             return 1
 
 
+
+class Metrics:
+    def __init__(self):
+        self.aggregation_size = 0
+        self.join_counter = 0
+        self.leave_counter = 0
+        self.formation_timer = None
+        self.lifespan_timer = None
+
+
+# class AggregationSimulation(Simulation):
+#     def __init__(self, config):
+#         super().__init__(config)
+#         self.aggregation_size = 0
+#         self.join_counter = 0
+#         self.leave_counter = 0
+#         self.formation_timer = None
+#         self.lifespan_timer = None
+    
+
+#     def update(self):
+#         super().update()
+#         # Update aggregation size
+#         self.aggregation_size += sum(agent.state == 'still' for agent in self.agents)
+#         # Update join and leave counters
+#         self.join_counter += sum(agent.state == 'joining' for agent in self.agents)
+#         self.leave_counter += sum(agent.state == 'leaving' for agent in self.agents)
+#         # Update formation timer
+#         if self.aggregation_size >= THRESHOLD and self.formation_timer is None:
+#             self.formation_timer = self.time_step
+#         # Update lifespan timer
+#         if self.aggregation_size >= THRESHOLD and self.lifespan_timer is None:
+#             self.lifespan_timer = self.time_step
+#         elif self.aggregation_size < THRESHOLD and self.lifespan_timer is not None:
+#             lifespan = self.time_step - self.lifespan_timer
+#             self.lifespan_timer = None
+#             # Log lifespan to wandb
+#             wandb.log({"lifespan": lifespan})
+
+#     def run_and_log(self):
+        
+#         # you can run the simulation until config.time_step > config.duration
+
+#         while config.time_step < config.duration:
+#             super().run()
+
+
+#         print(f"Duration: {config.duration}")
+#         print(f"Timestep: {self.time_step}")
+#         wandb.log({
+#             "aggregation_size": self.aggregation_size,
+#             "join_rate": self.join_counter / self.time_step,
+#             "leave_rate": self.leave_counter / self.time_step,
+#             "formation_time": self.formation_timer,
+#         })
+
+
+
 config = Config()
 n = 150
 config.window.height = n*10
 config.window.width = n*10
 x, y = config.window.as_tuple()
 
-(
-    Simulation(
-        AggregationConfig(
-            image_rotation=True,
-            movement_speed=1,
-            radius=125,
-            seed=1,
-            window=Window(width=n*10, height=n*10),
-            duration=240*60,
-            fps_limit=0,
-        )
-    )
-    .batch_spawn_agents(n, Cockroach, images=["images/white.png", "images/red.png"])
-    .spawn_site("images/bigger_big_circle.png", x//4, y//2)
-    .spawn_site("images/bigger_big_circle.png", (x//4)*3, y//2)
-    .run()
 
-)
+# # Initialize a new wandb run
+
+
+# # Set configuration variables
+#     .batch_spawn_agents(n, Cockroach, images=["images/white.png", "images/red.png"])
+# List of aggregation types to simulate
+aggregation_types = ['linear_pooling', 'log_pooling', 'beta_transformed_linear_pooling']
+
+# Initialize a dictionary to store results for each aggregation type
+results = {}
+
+# Allow value changes in the configuration
+
+
+
+# Run the simulation for each aggregation type
+for aggregation_type in aggregation_types:
+    # Set the aggregation type in the config
+    
+    wandb.init(project="aggregation-simulation-new") 
+
+    # Run the simulation and collect the results
+    df = (
+        Simulation(
+            AggregationConfig(
+                image_rotation=True,
+                movement_speed=1,
+                radius=125,
+                seed=1,
+                window=Window(width=n*10, height=n*10),
+                duration=240*60,
+                fps_limit=0,
+                aggregation_type=aggregation_type,  # Use the wandb config variable
+            )
+        )
+        .batch_spawn_agents(n, Cockroach, images=["images/white.png", "images/red.png"])
+        .spawn_site("images/bigger_big_circle.png", x//4, y//2)
+        .spawn_site("images/bigger_big_circle.png", (x//4)*3, y//2)
+        .run()
+        .snapshots
+        .filter(pl.col("state") == 'still')
+        .with_columns([
+            ((((x//4)*3+64) > pl.col("x")) & (pl.col("x") > ((x//4)*3-64)) & ((y//2+64) > pl.col("y")) & (pl.col("y") > (y//2-64))).alias("small aggregate"),
+            (((x//4+100) > pl.col("x")) & (pl.col("x") > (x//4-100)) & ((y//2+100) > pl.col("y")) & (pl.col("y") > (y//2-100))).alias("big aggregate")
+        ])
+        .groupby(["frame"])
+        .agg([
+            pl.count('id').alias("number of stopped agents"),
+            pl.col("small aggregate").cumsum().alias("2nd aggregate size").last(),
+            pl.col("big aggregate").cumsum().alias("1st aggregate size").last()
+        ])
+        .sort(["frame", "number of stopped agents"])
+    )
+
+
+    # #
+    # # Retrieve join_rate data from the first agent
+    # join_rate_data = simulation.agents[0].join_rate
+    # leave_rate_data = simulation.agents[0].leave_rate
+    # formation_time_data = simulation.agents[0].formation_time
+    # lifespan_data = simulation.agents[0].lifespan
+
+    # # Create a pandas dataframe from the data
+    # df_metrics = pd.DataFrame({
+    #     "join_rate": join_rate_data,
+    #     "leave_rate": leave_rate_data,
+    #     "formation_time": formation_time_data,
+    #     "lifespan": lifespan_data
+    # })
+
+    # #store the results in the dictionary
+    # results[aggregation_type] = df_metrics
+
+
+
+    df = df.to_pandas()
+
+    # Store the results in the dictionary
+    results[aggregation_type] = df
+
+
+
+
+#save the results in a csv file
+for aggregation_type, df in results.items():
+    df.to_csv(f"results_{aggregation_type}.csv")
+
+
+
+
+
+# # Create a new figure with a specified size (width=15, height=10)
+# plt.figure(figsize=(8, 8))
+
+# Now, plot the results for each aggregation type on the first graph
+# for aggregation_type, df in results.items():
+#     plt.plot(df["frame"], df["1st aggregate size"], label=f'{aggregation_type} - 1st aggregate size')
+
+# plt.legend()
+# plt.xlabel('Frame')
+# plt.ylabel('Number of agents')
+# plt.title('Comparison of 1st Aggregate Size for Different Aggregation Types')
+# plt.savefig('AggregationTypes_1stAggregate.png')
+
+# # Clear the current figure
+# plt.clf()
+
+# # Create a new figure with a specified size (width=15, height=10)
+# plt.figure(figsize=(8, 8))
+
+# # Now, plot the results for each aggregation type on the second graph
+# for aggregation_type, df in results.items():
+#     plt.plot(df["frame"], df["2nd aggregate size"], label=f'{aggregation_type} - 2nd aggregate size')
+
+# plt.legend()
+# plt.xlabel('Frame')
+# plt.ylabel('Number of agents')
+# plt.title('Comparison of 2nd Aggregate Size for Different Aggregation Types')
+# plt.savefig('AggregationTypes_2ndAggregate.png')

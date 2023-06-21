@@ -1,0 +1,10 @@
+
+/wandb
+
+*.pdf
+*.png
+*.tex
+*.csv
+*.sty
+
+*.log
